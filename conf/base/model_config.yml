@@ -1,0 +1,278 @@
+# Configuration des modèles ML pour la détection et reconnaissance de panneaux routiers
+
+# ==========================================
+# MODÈLE YOLO - DÉTECTION
+# ==========================================
+
+yolo:
+  # Configuration du modèle de base
+  model:
+    architecture: "yolov8n"  # yolov8n, yolov8s, yolov8m, yolov8l, yolov8x
+    pretrained: true
+    num_classes: 43  # Classes GTSRB (German Traffic Sign Recognition Benchmark)
+    
+  # Paramètres d'entraînement
+  training:
+    epochs: 100
+    batch_size: 16
+    img_size: 640
+    workers: 8
+    
+    # Optimiseur
+    optimizer: "auto"  # SGD, Adam, AdamW, auto
+    lr0: 0.01          # Learning rate initial
+    lrf: 0.01          # Learning rate final (lr0 * lrf)
+    momentum: 0.937
+    weight_decay: 0.0005
+    warmup_epochs: 3.0
+    warmup_momentum: 0.8
+    warmup_bias_lr: 0.1
+    
+    # Augmentation
+    augment: true
+    degrees: 10.0      # Rotation image (-deg à +deg)
+    translate: 0.1     # Translation image (+/- fraction)
+    scale: 0.9         # Gain d'échelle image (+/- gain)
+    shear: 2.0         # Cisaillement image (+/- deg)
+    perspective: 0.0   # Perspective image (+/- fraction)
+    flipud: 0.0        # Retournement vertical (probabilité)
+    fliplr: 0.5        # Retournement horizontal (probabilité)
+    mosaic: 1.0        # Probabilité de mosaïque
+    mixup: 0.1         # Probabilité de mixup
+    
+  # Validation et métriques
+  validation:
+    save_period: 10    # Sauvegarder checkpoint toutes les N epochs
+    val_period: 1      # Valider toutes les N epochs
+    metrics:
+      - "precision"
+      - "recall" 
+      - "mAP50"
+      - "mAP50-95"
+      
+  # Export et optimisation
+  export:
+    formats: ["onnx", "torchscript"]  # Formats d'export
+    optimize: true
+    int8: false        # Quantification INT8
+    half: true         # Précision FP16
+    
+# ==========================================
+# MOTEUR OCR - RECONNAISSANCE TEXTE
+# ==========================================
+
+ocr:
+  # Configuration Tesseract
+  tesseract:
+    engine: "tesseract"
+    lang: "eng+fra+deu"  # Langues supportées
+    config: "--psm 6 --oem 3"  # Page Segmentation Mode + OCR Engine Mode
+    
+    # PSM (Page Segmentation Mode):
+    # 0 = Orientation et détection de script seulement
+    # 3 = Segmentation automatique, sans OSD
+    # 6 = Bloc de texte uniforme (défaut pour panneaux)
+    # 8 = Traiter comme un seul mot
+    # 13 = Ligne de texte brute, pas de hacks spécifiques
+    
+    # OEM (OCR Engine Mode):
+    # 0 = Legacy engine seulement
+    # 1 = Neural nets LSTM engine seulement  
+    # 2 = Legacy + LSTM engines
+    # 3 = Défaut, basé sur ce qui est disponible
+    
+  # Configuration EasyOCR (alternative)
+  easyocr:
+    engine: "easyocr"
+    languages: ["en", "fr", "de"]
+    gpu: true
+    
+  # Preprocessing avant OCR
+  preprocessing:
+    # Amélioration d'image
+    denoise: true
+    blur_reduction: true
+    contrast_enhancement: true
+    brightness_adjustment: true
+    
+    # Resize et normalisation
+    min_height: 32     # Hauteur minimale pour OCR
+    max_height: 128    # Hauteur maximale
+    padding: 5         # Padding autour du texte
+    
+    # Binarisation
+    threshold_method: "adaptive"  # adaptive, otsu, simple
+    
+  # Post-processing
+  postprocessing:
+    # Correction de texte
+    spell_check: true
+    dictionary: "traffic_signs"  # Dictionnaire spécialisé
+    
+    # Filtrage des résultats
+    min_confidence: 0.5
+    min_word_length: 2
+    remove_special_chars: true
+    
+    # Patterns de panneaux connus
+    known_patterns:
+      - "STOP"
+      - "YIELD" 
+      - r"\d+\s*km/h"  # Limitations de vitesse
+      - r"\d+\s*km"    # Distances
+      - r"A\d+"        # Autoroutes
+      - r"N\d+"        # Routes nationales
+
+# ==========================================
+# PIPELINE COMPLET - DÉTECTION + OCR
+# ==========================================
+
+pipeline:
+  # Flux de traitement
+  processing_flow:
+    1: "load_image"
+    2: "yolo_detection" 
+    3: "roi_extraction"
+    4: "ocr_preprocessing"
+    5: "text_recognition"
+    6: "postprocessing"
+    7: "result_compilation"
+    
+  # Seuils de confiance
+  confidence_thresholds:
+    detection_min: 0.3      # Seuil minimum détection YOLO
+    detection_nms: 0.45     # Non-Maximum Suppression
+    ocr_min: 0.5           # Confiance minimum OCR
+    
+  # Configuration ROI (Region of Interest)
+  roi:
+    padding_ratio: 0.1      # Padding autour de la bbox (10%)
+    min_area: 100          # Aire minimale en pixels
+    max_aspect_ratio: 5.0  # Ratio largeur/hauteur max
+    
+  # Performance et optimisation
+  performance:
+    batch_processing: true
+    max_batch_size: 8
+    use_gpu: true
+    half_precision: true
+    
+    # Cache pour éviter les retraitements
+    enable_cache: true
+    cache_size: 1000
+    
+  # Formats de sortie
+  output:
+    include_confidence: true
+    include_bbox: true
+    include_cropped_regions: false
+    format: "json"  # json, xml, csv
+
+# ==========================================
+# DONNÉES ET DATASETS
+# ==========================================
+
+data:
+  # Dataset principal
+  dataset:
+    name: "GTSRB"
+    source: "https://www.kaggle.com/datasets/meowmeowmeowmeowmeow/gtsrb-german-traffic-sign"
+    classes: 43
+    
+  # Chemins des données
+  paths:
+    raw_data: "data/01_raw/GTSRB"
+    processed_data: "data/02_processed"
+    annotations: "data/02_processed/annotations"
+    train: "data/02_processed/train"
+    val: "data/02_processed/val"
+    test: "data/02_processed/test"
+    
+  # Split des données
+  split:
+    train: 0.8
+    val: 0.1
+    test: 0.1
+    random_seed: 42
+    stratified: true  # Préserver la distribution des classes
+    
+  # Format YOLO
+  yolo_format:
+    image_formats: [".jpg", ".jpeg", ".png"]
+    annotation_format: ".txt"
+    class_names_file: "classes.txt"
+    
+# ==========================================
+# ÉVALUATION ET MÉTRIQUES
+# ==========================================
+
+evaluation:
+  # Métriques de détection
+  detection_metrics:
+    - name: "mAP@0.5"
+      description: "Mean Average Precision at IoU=0.5"
+      target: 0.85
+      
+    - name: "mAP@0.5:0.95" 
+      description: "Mean Average Precision at IoU=0.5:0.95"
+      target: 0.70
+      
+    - name: "Precision"
+      description: "Précision moyenne toutes classes"
+      target: 0.90
+      
+    - name: "Recall"
+      description: "Rappel moyen toutes classes"
+      target: 0.85
+      
+    - name: "F1-Score"
+      description: "Score F1 moyen"
+      target: 0.87
+      
+  # Métriques OCR
+  ocr_metrics:
+    - name: "Character Accuracy"
+      description: "Précision au niveau caractère"
+      target: 0.95
+      
+    - name: "Word Accuracy"
+      description: "Précision au niveau mot"
+      target: 0.90
+      
+    - name: "Edit Distance"
+      description: "Distance d'édition moyenne"
+      target: 1.5
+      
+  # Métriques de performance
+  performance_metrics:
+    - name: "Inference Time"
+      description: "Temps d'inférence par image (ms)"
+      target: 200
+      
+    - name: "Memory Usage"
+      description: "Utilisation mémoire GPU (MB)"
+      target: 2048
+      
+    - name: "Throughput"
+      description: "Images traitées par seconde"
+      target: 10
+
+# ==========================================
+# MONITORING ET ALERTES
+# ==========================================
+
+monitoring:
+  # Seuils d'alerte
+  alerts:
+    accuracy_drop: 0.05    # Alerte si précision baisse de 5%
+    latency_increase: 1.5  # Alerte si latence x1.5
+    error_rate: 0.01       # Alerte si taux d'erreur > 1%
+    
+  # Métriques à surveiller en production
+  production_metrics:
+    - "prediction_accuracy"
+    - "response_time"
+    - "throughput"
+    - "error_rate"
+    - "confidence_distribution"
+    - "class_distribution"

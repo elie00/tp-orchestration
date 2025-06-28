@@ -1,0 +1,113 @@
+# ==========================================
+# CONFIGURATION PROMETHEUS
+# Monitoring des services Road Sign ML
+# ==========================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'road-sign-ml-monitor'
+
+# ==========================================
+# RÈGLES D'ALERTES
+# ==========================================
+rule_files:
+  - "alert_rules.yml"
+
+# ==========================================
+# CONFIGURATION ALERTMANAGER
+# ==========================================
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          # - alertmanager:9093
+
+# ==========================================
+# CIBLES DE SCRAPING
+# ==========================================
+scrape_configs:
+  # Prometheus lui-même
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 5s
+    metrics_path: /metrics
+
+  # API FastAPI
+  - job_name: 'road-sign-api'
+    static_configs:
+      - targets: ['api-dev:8000']
+    scrape_interval: 10s
+    metrics_path: /metrics
+    basic_auth:
+      username: ''
+      password: ''
+    scrape_timeout: 10s
+
+  # MLflow Tracking Server
+  - job_name: 'mlflow'
+    static_configs:
+      - targets: ['mlflow:5000']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # PostgreSQL via postgres_exporter
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+    scrape_interval: 30s
+    params:
+      format: ['prometheus']
+
+  # Redis via redis_exporter
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+    scrape_interval: 15s
+
+  # MinIO S3 Storage
+  - job_name: 'minio'
+    static_configs:
+      - targets: ['minio:9000']
+    scrape_interval: 30s
+    metrics_path: /minio/v2/metrics/cluster
+
+  # Node Exporter (si disponible)
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 15s
+
+  # Docker containers metrics (si disponible)
+  - job_name: 'docker'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    scrape_interval: 15s
+
+# ==========================================
+# CONFIGURATION AVANCÉE
+# ==========================================
+
+# Rétention des données
+storage:
+  tsdb:
+    retention.time: 30d
+    retention.size: 10GB
+
+# Configuration des logs
+log_level: info
+log_format: logfmt
+
+# Configuration réseau
+web:
+  enable_lifecycle: true
+  enable_admin_api: true
+  max_connections: 512
+  read_timeout: 30s
+
+# Limites de ressources
+runtime:
+  max_samples_per_query: 50000000
+  query_timeout: 2m

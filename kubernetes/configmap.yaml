@@ -1,0 +1,186 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: road-sign-config
+  namespace: road-sign-ml
+  labels:
+    app: road-sign-ml
+    component: configuration
+data:
+  # API Configuration
+  log_level: "INFO"
+  environment: "production"
+  debug: "false"
+  
+  # MLflow Configuration
+  mlflow_tracking_uri: "http://mlflow-service.road-sign-ml.svc.cluster.local:5000"
+  mlflow_experiment_name: "road-sign-detection"
+  
+  # Model Configuration
+  model_cache_size: "1000"
+  model_cache_ttl: "3600"
+  max_batch_size: "32"
+  inference_timeout: "30"
+  
+  # Monitoring Configuration
+  metrics_enabled: "true"
+  metrics_port: "9090"
+  health_check_interval: "30"
+  
+  # Performance Tuning
+  worker_processes: "4"
+  worker_connections: "1000"
+  keepalive_timeout: "65"
+  client_max_body_size: "10m"
+  
+  # Feature Flags
+  enable_batch_prediction: "true"
+  enable_model_versioning: "true"
+  enable_a_b_testing: "false"
+  enable_rate_limiting: "true"
+  
+  # Redis Configuration
+  redis_host: "redis-service.road-sign-ml.svc.cluster.local"
+  redis_port: "6379"
+  redis_db: "0"
+  redis_max_connections: "100"
+  
+  # Celery Configuration (for async tasks)
+  celery_broker_url: "redis://redis-service.road-sign-ml.svc.cluster.local:6379/1"
+  celery_result_backend: "redis://redis-service.road-sign-ml.svc.cluster.local:6379/2"
+  
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mlflow-config
+  namespace: road-sign-ml
+  labels:
+    app: mlflow
+    component: configuration
+data:
+  s3_bucket: "road-sign-ml-artifacts"
+  s3_endpoint_url: "https://s3.amazonaws.com"
+  s3_region: "us-west-2"
+  
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluent-bit-config
+  namespace: road-sign-ml
+  labels:
+    app: road-sign-ml
+    component: logging
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush         1
+        Log_Level     info
+        Daemon        off
+        Parsers_File  parsers.conf
+        HTTP_Server   On
+        HTTP_Listen   0.0.0.0
+        HTTP_Port     2020
+
+    [INPUT]
+        Name              tail
+        Path              /logs/*.log
+        Parser            json
+        Tag               api.logs
+        Refresh_Interval  5
+        Mem_Buf_Limit     5MB
+
+    [FILTER]
+        Name                kubernetes
+        Match               api.*
+        Kube_URL            https://kubernetes.default.svc:443
+        Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token
+        Merge_Log           On
+        K8S-Logging.Parser  On
+        K8S-Logging.Exclude Off
+
+    [OUTPUT]
+        Name  forward
+        Match *
+        Host  fluentd-aggregator.logging.svc.cluster.local
+        Port  24224
+
+  parsers.conf: |
+    [PARSER]
+        Name        json
+        Format      json
+        Time_Key    timestamp
+        Time_Format %Y-%m-%d %H:%M:%S
+        Time_Keep   On
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: road-sign-ml
+  labels:
+    app: road-sign-ml
+    component: proxy
+data:
+  nginx.conf: |
+    upstream api_backend {
+        least_conn;
+        server road-sign-api-internal:8000 max_fails=3 fail_timeout=30s;
+    }
+    
+    server {
+        listen 80;
+        server_name _;
+        
+        # Security headers
+        add_header X-Frame-Options DENY;
+        add_header X-Content-Type-Options nosniff;
+        add_header X-XSS-Protection "1; mode=block";
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains";
+        
+        # Rate limiting
+        limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+        limit_req zone=api burst=20 nodelay;
+        
+        # Client uploads
+        client_max_body_size 10m;
+        client_body_timeout 60s;
+        client_header_timeout 60s;
+        
+        location / {
+            proxy_pass http://api_backend;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            
+            # Timeouts
+            proxy_connect_timeout 30s;
+            proxy_send_timeout 60s;
+            proxy_read_timeout 60s;
+            
+            # Buffering
+            proxy_buffering on;
+            proxy_buffer_size 4k;
+            proxy_buffers 8 4k;
+        }
+        
+        location /health {
+            access_log off;
+            proxy_pass http://api_backend/health;
+            proxy_set_header Host $host;
+        }
+        
+        location /metrics {
+            allow 10.0.0.0/8;
+            allow 172.16.0.0/12;
+            allow 192.168.0.0/16;
+            deny all;
+            
+            proxy_pass http://api_backend/metrics;
+            proxy_set_header Host $host;
+        }
+    }

@@ -1,0 +1,142 @@
+# ==========================================
+# MULTI-STAGE DOCKERFILE POUR L'API FASTAPI
+# Optimisé pour la production Kubernetes
+# ==========================================
+
+# ==========================================
+# STAGE 1: Base avec dépendances système
+# ==========================================
+FROM python:3.10-slim as base
+
+# Variables d'environnement
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Installation des dépendances système
+RUN apt-get update && apt-get install -y \
+    # OpenCV dependencies
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    # Tesseract OCR
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    tesseract-ocr-fra \
+    tesseract-ocr-deu \
+    # Build tools pour certaines dépendances Python
+    gcc \
+    g++ \
+    # Utilitaires
+    curl \
+    wget \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Création de l'utilisateur non-root pour la sécurité
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+# ==========================================
+# STAGE 2: Installation des dépendances Python
+# ==========================================
+FROM base as deps
+
+# Copie des fichiers requirements
+COPY requirements/base.txt /tmp/requirements-base.txt
+COPY requirements/prod.txt /tmp/requirements-prod.txt
+
+# Installation des dépendances Python
+RUN pip install --upgrade pip && \
+    pip install -r /tmp/requirements-prod.txt
+
+# ==========================================
+# STAGE 3: Image de développement
+# ==========================================
+FROM deps as development
+
+# Installation des dépendances de développement
+COPY requirements/dev.txt /tmp/requirements-dev.txt
+RUN pip install -r /tmp/requirements-dev.txt
+
+# Répertoire de travail
+WORKDIR /app
+
+# Copie du code source
+COPY . /app/
+
+# Propriétés pour l'utilisateur appuser
+RUN chown -R appuser:appuser /app
+
+# Utilisateur non-root
+USER appuser
+
+# Port d'exposition
+EXPOSE 8000
+
+# Point d'entrée pour développement (avec rechargement automatique)
+CMD ["python", "-m", "uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+# ==========================================
+# STAGE 4: Image de production (finale)
+# ==========================================
+FROM deps as production
+
+# Configuration pour la production
+ENV ENVIRONMENT=production
+
+# Répertoire de travail
+WORKDIR /app
+
+# Copie uniquement des fichiers nécessaires pour réduire la taille
+COPY src/ /app/src/
+COPY conf/ /app/conf/
+COPY pyproject.toml /app/
+COPY README.md /app/
+
+# Création des répertoires nécessaires
+RUN mkdir -p /app/logs /app/data/04_models /app/temp && \
+    chown -R appuser:appuser /app
+
+# Utilisateur non-root pour la sécurité
+USER appuser
+
+# Port d'exposition
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Point d'entrée pour production
+CMD ["python", "-m", "uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--log-level", "info"]
+
+# ==========================================
+# STAGE 5: Image pour tests
+# ==========================================
+FROM development as testing
+
+# Variables d'environnement pour tests
+ENV ENVIRONMENT=testing
+
+# Installation de dépendances de test supplémentaires si nécessaire
+RUN pip install pytest-xdist pytest-html
+
+# Point d'entrée pour tests
+CMD ["python", "-m", "pytest", "src/tests/", "-v", "--cov=src", "--cov-report=html", "--cov-report=term"]
+
+# ==========================================
+# Labels pour métadonnées
+# ==========================================
+LABEL maintainer="eybo" \
+      version="1.0.0" \
+      description="Road Sign ML API - Détection et reconnaissance de panneaux routiers" \
+      org.opencontainers.image.title="Road Sign ML API" \
+      org.opencontainers.image.description="API FastAPI pour la détection et reconnaissance de panneaux routiers avec YOLOv8 + OCR" \
+      org.opencontainers.image.version="1.0.0" \
+      org.opencontainers.image.authors="eybo" \
+      org.opencontainers.image.source="https://github.com/eybo/road-sign-ml-project" \
+      org.opencontainers.image.licenses="MIT"

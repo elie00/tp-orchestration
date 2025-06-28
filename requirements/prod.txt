@@ -1,0 +1,71 @@
+# Requirements de production - Optimisé pour Kubernetes
+-r base.txt
+
+# ==========================================
+# PRODUCTION OPTIMIZATIONS
+# ==========================================
+
+# ASGI server production-ready
+gunicorn==21.2.0
+uvicorn[standard]==0.29.0
+
+# Performance monitoring
+py-spy==0.3.14
+
+# ==========================================
+# SECURITY & COMPLIANCE
+# ==========================================
+
+# Security headers
+secure==0.3.0
+
+# Secrets management
+cryptography==42.0.5
+
+# ==========================================
+# RELIABILITY & MONITORING
+# ==========================================
+
+# Circuit breaker pattern
+circuitbreaker==1.4.0
+
+# Retry logic
+tenacity==8.2.3
+
+# Health checks avancés
+health-check==1.3.3
+
+# ==========================================
+# PRODUCTION DATABASE
+# ==========================================
+
+# PostgreSQL optimisé
+psycopg2-binary==2.9.9
+
+# Connection pooling
+sqlalchemy[pool]==2.0.29
+
+# ==========================================
+# CACHING
+# ==========================================
+
+# Redis pour le cache
+redis==5.0.3
+hiredis==2.3.2
+
+# ==========================================
+# OBSERVABILITY PRODUCTION
+# ==========================================
+
+# Distributed tracing
+opentelemetry-api==1.24.0
+opentelemetry-sdk==1.24.0
+opentelemetry-instrumentation-fastapi==0.45b0
+opentelemetry-exporter-prometheus==1.12.0rc1
+
+# Structured logging
+structlog==24.1.0
+python-json-logger==2.0.7
+
+# Sentry error tracking (optionnel)
+# sentry-sdk[fastapi]==1.45.0

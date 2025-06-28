@@ -1,0 +1,157 @@
+# ==========================================
+# NAMESPACE DÉDIÉ AU PROJET ROAD SIGN ML
+# Isolation des ressources dans Kubernetes
+# ==========================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: road-sign-ml
+  labels:
+    app.kubernetes.io/name: road-sign-ml
+    app.kubernetes.io/component: namespace
+    app.kubernetes.io/part-of: road-sign-ml-project
+    app.kubernetes.io/managed-by: kubectl
+    app.kubernetes.io/version: "1.0.0"
+    environment: production
+    project: road-sign-detection
+  annotations:
+    description: "Namespace pour le projet de détection et reconnaissance de panneaux routiers"
+    contact: "eybo"
+    created-by: "kubectl"
+    
+---
+# ==========================================
+# RESOURCE QUOTA POUR LE NAMESPACE
+# Limitation des ressources pour éviter la surcharge
+# ==========================================
+
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: road-sign-ml-quota
+  namespace: road-sign-ml
+  labels:
+    app.kubernetes.io/name: road-sign-ml
+    app.kubernetes.io/component: resource-quota
+spec:
+  hard:
+    # Limites sur les pods
+    pods: "20"
+    persistentvolumeclaims: "10"
+    services: "10"
+    secrets: "20"
+    configmaps: "20"
+    
+    # Limites sur les ressources compute
+    requests.cpu: "8"
+    requests.memory: "16Gi"
+    limits.cpu: "16"
+    limits.memory: "32Gi"
+    
+    # Limites sur le stockage
+    requests.storage: "100Gi"
+    persistentvolumeclaims: "10"
+
+---
+# ==========================================
+# LIMIT RANGE POUR LES CONTENEURS
+# Valeurs par défaut et limites pour les ressources
+# ==========================================
+
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: road-sign-ml-limits
+  namespace: road-sign-ml
+  labels:
+    app.kubernetes.io/name: road-sign-ml
+    app.kubernetes.io/component: limit-range
+spec:
+  limits:
+    # Limites par défaut pour les conteneurs
+    - type: Container
+      default:
+        cpu: "500m"
+        memory: "512Mi"
+      defaultRequest:
+        cpu: "100m"
+        memory: "128Mi"
+      min:
+        cpu: "50m"
+        memory: "64Mi"
+      max:
+        cpu: "4"
+        memory: "8Gi"
+        
+    # Limites pour les PVC
+    - type: PersistentVolumeClaim
+      min:
+        storage: "1Gi"
+      max:
+        storage: "50Gi"
+
+---
+# ==========================================
+# NETWORK POLICY POUR LA SÉCURITÉ
+# Contrôle du trafic réseau dans le namespace
+# ==========================================
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: road-sign-ml-network-policy
+  namespace: road-sign-ml
+  labels:
+    app.kubernetes.io/name: road-sign-ml
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  
+  ingress:
+    # Permettre le trafic depuis l'ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+    
+    # Permettre le trafic interne au namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: road-sign-ml
+    
+    # Permettre le monitoring depuis le namespace de monitoring
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080  # Métriques
+  
+  egress:
+    # Permettre le trafic DNS
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    
+    # Permettre le trafic HTTPS pour téléchargements
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+    
+    # Permettre le trafic interne au namespace
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: road-sign-ml

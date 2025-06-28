@@ -1,0 +1,297 @@
+# ==========================================
+# DOCKER COMPOSE POUR LE DÉVELOPPEMENT LOCAL
+# Orchestration complète des services ML
+# ==========================================
+
+version: '3.8'
+
+# ==========================================
+# SERVICES
+# ==========================================
+
+services:
+  # ==========================================
+  # BASE DE DONNÉES POSTGRESQL POUR MLFLOW
+  # ==========================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: road-sign-postgres
+    environment:
+      POSTGRES_DB: mlflow
+      POSTGRES_USER: mlflow
+      POSTGRES_PASSWORD: mlflow123
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/init-postgres.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mlflow -d mlflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - road-sign-network
+    restart: unless-stopped
+
+  # ==========================================
+  # REDIS POUR LE CACHE
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: road-sign-redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - road-sign-network
+    restart: unless-stopped
+
+  # ==========================================
+  # MINIO POUR LE STOCKAGE S3-COMPATIBLE
+  # ==========================================
+  minio:
+    image: minio/minio:latest
+    container_name: road-sign-minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+      MINIO_DEFAULT_BUCKETS: mlflow-artifacts,model-registry,datasets
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"  # API
+      - "9001:9001"  # Console
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - road-sign-network
+    restart: unless-stopped
+
+  # ==========================================
+  # MLFLOW TRACKING SERVER
+  # ==========================================
+  mlflow:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.training
+      target: mlflow-server
+    container_name: road-sign-mlflow
+    environment:
+      - MLFLOW_BACKEND_STORE_URI=postgresql://mlflow:mlflow123@postgres:5432/mlflow
+      - MLFLOW_DEFAULT_ARTIFACT_ROOT=s3://mlflow-artifacts/
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=minioadmin123
+      - MLFLOW_S3_ENDPOINT_URL=http://minio:9000
+    volumes:
+      - ./logs:/mlflow/logs
+      - ./artifacts:/mlflow/artifacts
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - road-sign-network
+    restart: unless-stopped
+
+  # ==========================================
+  # API FASTAPI (DÉVELOPPEMENT)
+  # ==========================================
+  api-dev:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+      target: development
+    container_name: road-sign-api-dev
+    environment:
+      - ENVIRONMENT=development
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - .:/app
+      - ./logs:/app/logs
+      - ./data:/app/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      mlflow:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - road-sign-network
+    restart: unless-stopped
+
+  # ==========================================
+  # CONTENEUR D'ENTRAÎNEMENT
+  # ==========================================
+  training:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.training
+      target: training
+    container_name: road-sign-training
+    environment:
+      - ENVIRONMENT=training
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - CUDA_VISIBLE_DEVICES=0
+    volumes:
+      - .:/workspace
+      - ./data:/workspace/data
+      - ./models:/workspace/models
+      - ./logs:/workspace/logs
+      - ./artifacts:/workspace/artifacts
+      # Mount pour Kaggle credentials si disponibles
+      - ~/.kaggle:/workspace/.kaggle:ro
+    ports:
+      - "8888:8888"  # Jupyter Lab
+      - "6006:6006"  # TensorBoard
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - road-sign-network
+    # Ne démarre pas automatiquement - à lancer manuellement
+    profiles: ["training"]
+
+  # ==========================================
+  # JUPYTER LAB STANDALONE
+  # ==========================================
+  jupyter:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.training
+      target: jupyter
+    container_name: road-sign-jupyter
+    environment:
+      - ENVIRONMENT=development
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    volumes:
+      - .:/workspace
+      - ./notebooks:/workspace/notebooks
+      - ./data:/workspace/data
+    ports:
+      - "8889:8888"  # Port différent pour éviter conflit
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    networks:
+      - road-sign-network
+    profiles: ["jupyter"]
+
+  # ==========================================
+  # PROMETHEUS POUR MONITORING
+  # ==========================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: road-sign-prometheus
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    networks:
+      - road-sign-network
+    profiles: ["monitoring"]
+
+  # ==========================================
+  # GRAFANA POUR DASHBOARDS
+  # ==========================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: road-sign-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning
+      - ./docker/grafana/dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - road-sign-network
+    profiles: ["monitoring"]
+
+# ==========================================
+# VOLUMES PERSISTANTS
+# ==========================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+# ==========================================
+# RÉSEAUX
+# ==========================================
+networks:
+  road-sign-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# ==========================================
+# CONFIGURATION POUR DIFFÉRENTS PROFILS
+# ==========================================
+
+# Profils disponibles:
+# - default: services de base (postgres, redis, minio, mlflow, api-dev)
+# - training: ajoute le conteneur d'entraînement avec GPU
+# - jupyter: ajoute Jupyter Lab standalone
+# - monitoring: ajoute Prometheus + Grafana
+
+# Commandes utiles:
+# docker-compose up -d                          # Services de base
+# docker-compose --profile training up -d       # + Entraînement
+# docker-compose --profile monitoring up -d     # + Monitoring
+# docker-compose --profile jupyter up -d        # + Jupyter

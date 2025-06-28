@@ -1,0 +1,216 @@
+# ==========================================
+# DOCKERFILE POUR L'ENTRAÎNEMENT DES MODÈLES ML
+# Optimisé pour GPU et entraînement intensif
+# ==========================================
+
+# ==========================================
+# STAGE 1: Base avec CUDA pour GPU
+# ==========================================
+FROM nvidia/cuda:12.1-devel-ubuntu22.04 as base
+
+# Variables d'environnement
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    DEBIAN_FRONTEND=noninteractive
+
+# Installation des dépendances système
+RUN apt-get update && apt-get install -y \
+    # Python et pip
+    python3.10 \
+    python3.10-dev \
+    python3-pip \
+    python3.10-venv \
+    # Build essentials
+    build-essential \
+    cmake \
+    pkg-config \
+    # OpenCV dependencies
+    libopencv-dev \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    # Image processing libraries
+    libjpeg-dev \
+    libpng-dev \
+    libtiff-dev \
+    libavcodec-dev \
+    libavformat-dev \
+    libswscale-dev \
+    libv4l-dev \
+    libxvidcore-dev \
+    libx264-dev \
+    # Tesseract OCR
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    tesseract-ocr-fra \
+    tesseract-ocr-deu \
+    # Utilitaires
+    wget \
+    curl \
+    unzip \
+    git \
+    vim \
+    htop \
+    # Pour Kaggle API
+    ca-certificates \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Lien symbolique pour python
+RUN ln -s /usr/bin/python3.10 /usr/bin/python
+
+# Mise à jour de pip
+RUN python -m pip install --upgrade pip
+
+# ==========================================
+# STAGE 2: Installation des dépendances ML
+# ==========================================
+FROM base as ml-deps
+
+# Installation de PyTorch avec support CUDA
+RUN pip install torch==2.3.0+cu121 torchvision==0.18.0+cu121 torchaudio==2.3.0+cu121 \
+    --index-url https://download.pytorch.org/whl/cu121
+
+# Copie des fichiers requirements
+COPY requirements/base.txt /tmp/requirements-base.txt
+COPY requirements/dev.txt /tmp/requirements-dev.txt
+
+# Installation des dépendances ML
+RUN pip install -r /tmp/requirements-base.txt && \
+    pip install -r /tmp/requirements-dev.txt
+
+# Installation de dépendances supplémentaires pour l'entraînement
+RUN pip install \
+    # Kaggle pour télécharger des datasets
+    kaggle \
+    # Weights & Biases pour tracking avancé
+    wandb \
+    # TensorBoard pour visualisation
+    tensorboard \
+    # Outils de profiling
+    py-spy \
+    memory-profiler \
+    # Jupyter pour notebooks d'analyse
+    jupyter \
+    jupyterlab \
+    # Outils de visualisation avancée
+    plotly \
+    bokeh
+
+# ==========================================
+# STAGE 3: Configuration des outils
+# ==========================================
+FROM ml-deps as tools
+
+# Configuration de MLflow
+ENV MLFLOW_TRACKING_URI="sqlite:///mlflow.db"
+ENV MLFLOW_DEFAULT_ARTIFACT_ROOT="./mlruns"
+
+# Configuration pour CUDA
+ENV CUDA_VISIBLE_DEVICES=0
+ENV TORCH_CUDA_ARCH_LIST="7.0;7.5;8.0;8.6"
+
+# Répertoire de travail
+WORKDIR /workspace
+
+# Création de l'utilisateur pour l'entraînement
+RUN groupadd -r trainer && useradd -r -g trainer trainer
+
+# Création des répertoires nécessaires
+RUN mkdir -p /workspace/data \
+             /workspace/models \
+             /workspace/logs \
+             /workspace/artifacts \
+             /workspace/notebooks \
+             /workspace/.kaggle && \
+    chown -R trainer:trainer /workspace
+
+# ==========================================
+# STAGE 4: Image de développement/training
+# ==========================================
+FROM tools as training
+
+# Copie du code source
+COPY . /workspace/
+
+# Configuration des permissions
+RUN chown -R trainer:trainer /workspace
+
+# Utilisateur pour l'entraînement
+USER trainer
+
+# Variables d'environnement pour l'entraînement
+ENV PYTHONPATH="/workspace/src:$PYTHONPATH"
+ENV ENVIRONMENT=training
+
+# Ports d'exposition
+EXPOSE 5000  # MLflow UI
+EXPOSE 8888  # Jupyter Lab
+EXPOSE 6006  # TensorBoard
+
+# Script d'entrée pour configuration initiale
+COPY docker/entrypoint-training.sh /entrypoint.sh
+USER root
+RUN chmod +x /entrypoint.sh
+USER trainer
+
+# Point d'entrée par défaut
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["training"]
+
+# ==========================================
+# STAGE 5: Image pour Jupyter Lab
+# ==========================================
+FROM training as jupyter
+
+# Configuration Jupyter
+RUN jupyter lab --generate-config && \
+    echo "c.ServerApp.ip = '0.0.0.0'" >> ~/.jupyter/jupyter_lab_config.py && \
+    echo "c.ServerApp.port = 8888" >> ~/.jupyter/jupyter_lab_config.py && \
+    echo "c.ServerApp.open_browser = False" >> ~/.jupyter/jupyter_lab_config.py && \
+    echo "c.ServerApp.allow_root = True" >> ~/.jupyter/jupyter_lab_config.py && \
+    echo "c.ServerApp.token = ''" >> ~/.jupyter/jupyter_lab_config.py && \
+    echo "c.ServerApp.password = ''" >> ~/.jupyter/jupyter_lab_config.py
+
+# Point d'entrée pour Jupyter
+CMD ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]
+
+# ==========================================
+# STAGE 6: Image pour MLflow Server
+# ==========================================
+FROM tools as mlflow-server
+
+# Configuration spécifique MLflow
+ENV MLFLOW_HOST=0.0.0.0
+ENV MLFLOW_PORT=5000
+
+# Répertoire spécifique pour MLflow
+WORKDIR /mlflow
+
+# Copie des configurations
+COPY conf/ /mlflow/conf/
+
+# Point d'entrée MLflow
+CMD ["mlflow", "server", \
+     "--host", "0.0.0.0", \
+     "--port", "5000", \
+     "--backend-store-uri", "sqlite:///mlflow.db", \
+     "--default-artifact-root", "./mlruns"]
+
+# ==========================================
+# Labels pour métadonnées
+# ==========================================
+LABEL maintainer="eybo" \
+      version="1.0.0" \
+      description="Road Sign ML Training - Entraînement des modèles de détection" \
+      org.opencontainers.image.title="Road Sign ML Training" \
+      org.opencontainers.image.description="Environnement d'entraînement pour modèles YOLO + OCR avec support GPU" \
+      org.opencontainers.image.version="1.0.0" \
+      org.opencontainers.image.authors="eybo" \
+      org.opencontainers.image.source="https://github.com/eybo/road-sign-ml-project" \
+      org.opencontainers.image.licenses="MIT"

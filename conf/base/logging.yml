@@ -1,0 +1,291 @@
+# Configuration du logging pour le projet road-sign-ml
+
+version: 1
+disable_existing_loggers: false
+
+# ==========================================
+# FORMATTERS - Formats de logs
+# ==========================================
+
+formatters:
+  standard:
+    format: "[{asctime}] {levelname:8} | {name:20} | {message}"
+    style: "{"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+    
+  detailed:
+    format: "[{asctime}] {levelname:8} | {name:20} | {funcName:15} | Line {lineno:4} | {message}"
+    style: "{"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+    
+  json:
+    format: "%(message)s"
+    style: "%"
+    
+  simple:
+    format: "{levelname:8} | {name:15} | {message}"
+    style: "{"
+
+# ==========================================
+# HANDLERS - Destinations des logs
+# ==========================================
+
+handlers:
+  # Console handler pour développement
+  console:
+    class: logging.StreamHandler
+    level: INFO
+    formatter: standard
+    stream: ext://sys.stdout
+    
+  # Console handler pour debug
+  console_debug:
+    class: logging.StreamHandler
+    level: DEBUG
+    formatter: detailed
+    stream: ext://sys.stdout
+    
+  # Fichier pour tous les logs
+  file_all:
+    class: logging.handlers.RotatingFileHandler
+    level: DEBUG
+    formatter: detailed
+    filename: logs/app.log
+    maxBytes: 10485760  # 10MB
+    backupCount: 5
+    encoding: utf8
+    
+  # Fichier pour les erreurs uniquement
+  file_error:
+    class: logging.handlers.RotatingFileHandler
+    level: ERROR
+    formatter: detailed
+    filename: logs/error.log
+    maxBytes: 10485760  # 10MB
+    backupCount: 10
+    encoding: utf8
+    
+  # Fichier pour MLflow
+  file_mlflow:
+    class: logging.handlers.RotatingFileHandler
+    level: INFO
+    formatter: json
+    filename: logs/mlflow.log
+    maxBytes: 10485760  # 10MB
+    backupCount: 5
+    encoding: utf8
+    
+  # Fichier pour l'API
+  file_api:
+    class: logging.handlers.RotatingFileHandler
+    level: INFO
+    formatter: json
+    filename: logs/api.log
+    maxBytes: 10485760  # 10MB
+    backupCount: 5
+    encoding: utf8
+    
+  # Fichier pour les métriques de performance
+  file_metrics:
+    class: logging.handlers.RotatingFileHandler
+    level: INFO
+    formatter: json
+    filename: logs/metrics.log
+    maxBytes: 10485760  # 10MB
+    backupCount: 5
+    encoding: utf8
+
+# ==========================================
+# LOGGERS - Configuration par module
+# ==========================================
+
+loggers:
+  # Logger racine pour l'application
+  "":
+    level: INFO
+    handlers: [console, file_all, file_error]
+    propagate: false
+    
+  # Logger pour les pipelines ML
+  "src.ml_pipelines":
+    level: DEBUG
+    handlers: [console_debug, file_all]
+    propagate: false
+    
+  # Logger pour l'entraînement
+  "src.ml_pipelines.training_pipeline":
+    level: INFO
+    handlers: [console, file_all, file_mlflow]
+    propagate: false
+    
+  # Logger pour les prédictions
+  "src.ml_pipelines.inference_pipeline":
+    level: INFO
+    handlers: [console, file_all, file_metrics]
+    propagate: false
+    
+  # Logger pour l'API FastAPI
+  "src.api":
+    level: INFO
+    handlers: [console, file_api]
+    propagate: false
+    
+  # Logger pour les services API
+  "src.api.services":
+    level: DEBUG
+    handlers: [console_debug, file_api]
+    propagate: false
+    
+  # Logger pour MLflow
+  "mlflow":
+    level: WARNING
+    handlers: [file_mlflow]
+    propagate: false
+    
+  # Logger pour Ultralytics YOLO
+  "ultralytics":
+    level: WARNING
+    handlers: [file_all]
+    propagate: false
+    
+  # Logger pour PyTorch
+  "torch":
+    level: WARNING
+    handlers: [file_all]
+    propagate: false
+    
+  # Logger pour les requêtes HTTP
+  "httpx":
+    level: WARNING
+    handlers: [file_api]
+    propagate: false
+    
+  # Logger pour FastAPI/Uvicorn
+  "uvicorn":
+    level: INFO
+    handlers: [console, file_api]
+    propagate: false
+    
+  "uvicorn.access":
+    level: INFO
+    handlers: [file_api]
+    propagate: false
+    
+  "uvicorn.error":
+    level: INFO
+    handlers: [console, file_error]
+    propagate: false
+    
+  # Logger pour les tests
+  "pytest":
+    level: INFO
+    handlers: [console]
+    propagate: false
+
+# ==========================================
+# ROOT LOGGER - Configuration par défaut
+# ==========================================
+
+root:
+  level: INFO
+  handlers: [console, file_all]
+
+# ==========================================
+# CONFIGURATION SPÉCIFIQUE ENVIRONNEMENTS
+# ==========================================
+
+# Configuration pour développement local
+development:
+  console_level: DEBUG
+  file_level: DEBUG
+  enable_detailed_format: true
+  
+# Configuration pour tests
+testing:
+  console_level: WARNING
+  file_level: INFO
+  disable_external_loggers: true
+  
+# Configuration pour production
+production:
+  console_level: WARNING
+  file_level: INFO
+  enable_json_format: true
+  enable_structured_logging: true
+
+# ==========================================
+# MÉTRIQUES ET MONITORING
+# ==========================================
+
+# Logs structurés pour monitoring
+structured_logging:
+  enable: true
+  fields:
+    - "timestamp"
+    - "level" 
+    - "logger"
+    - "message"
+    - "module"
+    - "function"
+    - "line"
+    - "process_id"
+    - "thread_id"
+    - "correlation_id"
+    
+# Métriques de performance à logger
+performance_metrics:
+  - "response_time"
+  - "memory_usage"
+  - "cpu_usage"
+  - "gpu_usage"
+  - "inference_time"
+  - "preprocessing_time"
+  - "postprocessing_time"
+  
+# Événements business à tracker
+business_events:
+  - "model_prediction"
+  - "model_training_start"
+  - "model_training_complete"
+  - "api_request"
+  - "error_occurred"
+  - "performance_threshold_exceeded"
+
+# ==========================================
+# ALERTES ET NOTIFICATIONS
+# ==========================================
+
+# Configuration des alertes basées sur les logs
+alerts:
+  error_threshold:
+    count: 10
+    timeframe: "5min"
+    action: "email"
+    
+  performance_degradation:
+    metric: "response_time"
+    threshold: 2000  # ms
+    action: "slack"
+    
+  model_accuracy_drop:
+    metric: "prediction_confidence"
+    threshold: 0.7
+    action: "pagerduty"
+
+# Intégrations externes
+integrations:
+  # Prometheus pour métriques
+  prometheus:
+    enable: true
+    metrics_endpoint: "/metrics"
+    
+  # Grafana pour dashboards
+  grafana:
+    enable: true
+    dashboard_url: "http://grafana:3000"
+    
+  # Jaeger pour tracing distribué
+  jaeger:
+    enable: true
+    agent_host: "jaeger"
+    agent_port: 6831

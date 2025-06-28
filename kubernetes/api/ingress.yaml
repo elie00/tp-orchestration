@@ -1,0 +1,142 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: road-sign-api-ingress
+  namespace: road-sign-ml
+  labels:
+    app: road-sign-api
+    component: ingress
+  annotations:
+    # NGINX Ingress Controller
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    
+    # SSL Configuration
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-protocols: "TLSv1.2 TLSv1.3"
+    
+    # Rate limiting
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    
+    # CORS Configuration
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization"
+    
+    # Client uploads
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/client-max-body-size: "10m"
+    
+    # Health checks
+    nginx.ingress.kubernetes.io/health-check-path: "/health"
+    nginx.ingress.kubernetes.io/health-check-interval: "30s"
+    
+    # Load balancing
+    nginx.ingress.kubernetes.io/load-balance: "round_robin"
+    
+spec:
+  ingressClassName: nginx
+  
+  tls:
+    - hosts:
+        - api.road-sign-ml.com
+        - road-sign-ml.com
+      secretName: road-sign-tls-secret
+  
+  rules:
+    # Production API
+    - host: api.road-sign-ml.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: road-sign-api-internal
+                port:
+                  number: 8000
+          
+          # Separate path for metrics (secured)
+          - path: /metrics
+            pathType: Exact
+            backend:
+              service:
+                name: road-sign-api-internal
+                port:
+                  number: 9090
+    
+    # Alternative domain
+    - host: road-sign-ml.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: road-sign-api-internal
+                port:
+                  number: 8000
+                  
+    # MLflow UI (separate subdomain)
+    - host: mlflow.road-sign-ml.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mlflow-service
+                port:
+                  number: 5000
+
+---
+# Ingress for monitoring (restricted access)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: road-sign-monitoring-ingress
+  namespace: road-sign-ml
+  labels:
+    app: road-sign-monitoring
+    component: ingress
+  annotations:
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: monitoring-auth
+    nginx.ingress.kubernetes.io/auth-realm: "Monitoring Access Required"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  
+  tls:
+    - hosts:
+        - monitoring.road-sign-ml.com
+        - grafana.road-sign-ml.com
+        - prometheus.road-sign-ml.com
+      secretName: monitoring-tls-secret
+  
+  rules:
+    - host: grafana.road-sign-ml.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana-service
+                port:
+                  number: 3000
+    
+    - host: prometheus.road-sign-ml.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: prometheus-service
+                port:
+                  number: 9090

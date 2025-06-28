@@ -1,0 +1,277 @@
+# 🚦 Road Sign ML Project - .gitignore
+
+# ========================================
+# Environnements Python
+# ========================================
+.venv/
+venv/
+env/
+ENV/
+.env
+.env.local
+.env.*.local
+
+# ========================================
+# Python Cache et Bytecode
+# ========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ========================================
+# Tests et Coverage
+# ========================================
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# ========================================
+# IDE et Editeurs
+# ========================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+*.iml
+*.sublime-project
+*.sublime-workspace
+
+# ========================================
+# Système
+# ========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ========================================
+# Logs
+# ========================================
+*.log
+logs/
+*.log.*
+log/
+
+# ========================================
+# Données et Modèles (volumineux)
+# ========================================
+# Données brutes (peut être très volumineux)
+data/01_raw/images/
+data/01_raw/Train/
+data/01_raw/Test/
+data/01_raw/Meta/
+data/01_raw/*.zip
+data/01_raw/*.tar.gz
+
+# Modèles entraînés (volumineux)
+data/04_models/*.pt
+data/04_models/*.pth
+data/04_models/*.weights
+data/04_models/*.onnx
+data/04_models/yolo_models/
+data/04_models/ultralytics/
+
+# Artifacts MLflow locaux
+mlruns/
+mlflow_artifacts/
+mlflow/artifacts/
+
+# ========================================
+# Docker et Volumes
+# ========================================
+# Volumes de données Docker (locaux)
+docker/postgres_data/
+docker/redis_data/
+docker/grafana_data/
+docker/prometheus_data/
+docker/minio_data/
+
+# ========================================
+# Secrets et Configuration Sensible
+# ========================================
+# Clés API et secrets (IMPORTANT !)
+*.key
+*.pem
+*.crt
+.secrets/
+secrets/
+.env.secret
+config.secret.yml
+
+# Configuration Kubernetes avec secrets
+kubernetes/*/secret.yaml.local
+kubernetes/*/configmap.yaml.local
+
+# ========================================
+# Temporaire et Cache
+# ========================================
+tmp/
+temp/
+.tmp/
+.cache/
+*.tmp
+*.temp
+.sass-cache/
+
+# ========================================
+# Notebooks et Données d'Exploration
+# ========================================
+# Checkpoints Jupyter
+.ipynb_checkpoints/
+notebooks/*.nbconvert.ipynb
+
+# Datasets temporaires
+data/temp/
+data/cache/
+data/scratch/
+
+# ========================================
+# MLflow et Expérimentations
+# ========================================
+# Artifacts MLflow (gros fichiers)
+mlflow/*/artifacts/
+mlflow/*/meta.yaml.backup
+
+# ========================================
+# API et Web
+# ========================================
+# Uploads temporaires
+uploads/
+temp_uploads/
+static/temp/
+
+# ========================================
+# Monitoring et Métriques
+# ========================================
+# Données Prometheus (locales)
+prometheus_data/
+grafana_data/
+alertmanager_data/
+
+# ========================================
+# Compilation et Build
+# ========================================
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+
+# ========================================
+# Documentation générée
+# ========================================
+docs/_build/
+docs/build/
+site/
+
+# ========================================
+# Package managers
+# ========================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ========================================
+# Fichiers de Lock (optionnel selon politique)
+# ========================================
+# Décommenter si vous voulez ignorer les lock files
+# poetry.lock
+# Pipfile.lock
+# requirements.lock
+
+# ========================================
+# Spécifique au Projet
+# ========================================
+# Modèles de test et données synthétiques
+test_images/
+synthetic_data/
+
+# Résultats d'expérimentations
+experiments_results/
+benchmark_results/
+
+# Scripts de debug personnel
+debug_*.py
+test_*.py.bak
+
+# ========================================
+# CI/CD
+# ========================================
+# Artifacts de build CI
+.github/artifacts/
+build_artifacts/
+
+# Reports de sécurité
+security_reports/
+vulnerability_reports/
+
+# ========================================
+# Sauvegardes
+# ========================================
+*.bak
+*.backup
+*.old
+*~
+.#*
+
+# ========================================
+# Base de données locales
+# ========================================
+*.sqlite
+*.sqlite3
+*.db
+local.db
+test.db
+
+# ========================================
+# Configuration locale
+# ========================================
+config.local.yml
+config.dev.yml
+local_config.py
+personal_settings.py
